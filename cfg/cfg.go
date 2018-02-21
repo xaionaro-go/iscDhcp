@@ -54,7 +54,7 @@ func (options Options) configWrite(out io.Writer, root Root, indent string) (err
 		fmt.Fprintf(out, "%vlog-facility %v;\n", indent, options.LogFacility)
 	}
 	if options.DomainName != "" {
-		fmt.Fprintf(out, "%voption domain-name %v;\n", indent, options.DomainName)
+		fmt.Fprintf(out, "%voption domain-name \"%v\";\n", indent, options.DomainName)
 	}
 	if len(options.DomainNameServers) > 0 {
 		fmt.Fprintf(out, "%voption domain-name-servers %v;\n", indent, strings.Join(options.DomainNameServers, ", "))
@@ -378,6 +378,16 @@ func (options *Options) parse(root *Root, k string, value isccfg.Value) (err err
 	}
 
 	return
+}
+
+func (cfg Config) ConfigWriteTo(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+
+	cfgWriter := bufio.NewWriter(file)
+	return cfg.ConfigWrite(cfgWriter)
 }
 
 func (cfg *Config) LoadFrom(path string) error {
