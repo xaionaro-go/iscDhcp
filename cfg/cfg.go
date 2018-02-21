@@ -381,12 +381,13 @@ func (options *Options) parse(root *Root, k string, value isccfg.Value) (err err
 }
 
 func (cfg Config) ConfigWriteTo(path string) error {
-	file, err := os.Open(path)
+	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 
 	cfgWriter := bufio.NewWriter(file)
+	defer cfgWriter.Flush()
 	return cfg.ConfigWrite(cfgWriter)
 }
 
