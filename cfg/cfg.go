@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"github.com/timtadh/lexmachine"
 	"github.com/xaionaro-go/isccfg"
+	"io"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -23,16 +25,100 @@ type Options struct {
 	MaxLeaseTime      int           `json:",omitempty"`
 	Authoritative     bool          `json:",omitempty"`
 	LogFacility       string        `json:",omitempty"`
-	DomainNameServers []string      `json:",omitempty"`
 	DomainName        string        `json:",omitempty"`
+	DomainNameServers []string      `json:",omitempty"`
 	Range             Range         `json:",omitempty"`
 	Routers           []string      `json:",omitempty"`
 	BroadcastAddress  string        `json:",omitempty"`
-	Filename          string        `json:",omitempty"`
 	NextServer        string        `json:",omitempty"`
+	Filename          string        `json:",omitempty"`
 	RootPath          string        `json:",omitempty"`
 	MTU               int           `json:",omitempty"`
 	Custom            CustomOptions `json:",omitempty"`
+}
+
+func (options Options) configWrite(out io.Writer, root Root, indent string) (err error) {
+	if options.DefaultLeaseTime != 0 {
+		_, err = fmt.Fprintf(out, "%vdefault-lease-time %v;\n", indent, options.DefaultLeaseTime)
+		if err != nil {
+			return err
+		}
+	}
+	if options.MaxLeaseTime != 0 {
+		fmt.Fprintf(out, "%vmax-lease-time %v;\n", indent, options.MaxLeaseTime)
+	}
+	if options.Authoritative {
+		fmt.Fprintf(out, "%vauthoritative;\n", indent)
+	}
+	if options.LogFacility != "" {
+		fmt.Fprintf(out, "%vlog-facility %v;\n", indent, options.LogFacility)
+	}
+	if options.DomainName != "" {
+		fmt.Fprintf(out, "%vdomain-name %v;\n", indent, options.DomainName)
+	}
+	if len(options.DomainNameServers) > 0 {
+		fmt.Fprintf(out, "%vdomain-name-servers %v;\n", indent, strings.Join(options.DomainNameServers, ", "))
+	}
+	if options.Range.Start != nil {
+		fmt.Fprintf(out, "%vrange %v %v;\n", indent, options.Range.Start, options.Range.End)
+	}
+	if len(options.Routers) > 0 {
+		fmt.Fprintf(out, "%voption routers %v;\n", indent, strings.Join(options.Routers, ", "))
+	}
+	if options.BroadcastAddress != "" {
+		fmt.Fprintf(out, "%voption broadcast-address %v;\n", indent, options.BroadcastAddress)
+	}
+	if options.NextServer != "" {
+		fmt.Fprintf(out, "%vnext-server %v;\n", indent, options.NextServer)
+	}
+	if options.Filename != "" {
+		fmt.Fprintf(out, "%vfilename \"%v\";\n", indent, options.Filename)
+	}
+	if options.RootPath != "" {
+		fmt.Fprintf(out, "%voption root-path \"%v\";\n", indent, options.RootPath)
+	}
+	if options.MTU != 0 {
+		fmt.Fprintf(out, "%voption interface-mtu %v;\n", indent, options.MTU)
+	}
+
+	var keys []int
+	for k := range options.Custom {
+		keys = append(keys, k)
+	}
+	sort.IntSlice(keys).Sort()
+
+	customOptionNameMap := map[int]string{}
+	for k, f := range root.UserDefinedOptionFields {
+		customOptionNameMap[f.Code] = k
+	}
+	customOptionValueTypeMap := map[int]ValueType{}
+	for _, f := range root.UserDefinedOptionFields {
+		customOptionValueTypeMap[f.Code] = f.ValueType
+	}
+
+	for _, k := range keys {
+		option := options.Custom[k]
+
+		var valueString string
+		switch customOptionValueTypeMap[k] {
+		case BYTEARRAY:
+			var result []string
+			for _, byteValue := range option {
+				result = append(result, strconv.Itoa(int(byteValue)))
+			}
+			valueString = strings.Join(result, ", ")
+		default:
+			panic("This shouldn't happened")
+		}
+
+		fmt.Fprintf(out, "%voption %v %v;\n", indent, customOptionNameMap[k], valueString)
+	}
+
+	return nil
+}
+
+func (options Options) ConfigWrite(out io.Writer, root Root) error {
+	return options.configWrite(out, root, "")
 }
 
 type Subnet struct {
@@ -42,11 +128,55 @@ type Subnet struct {
 }
 type Subnets map[string]Subnet
 
+func (subnet Subnet) ConfigWrite(out io.Writer, root Root) (err error) {
+	_, err = fmt.Fprintf(out, "\nsubnet %v netmask %v {\n", subnet.Network, net.IP(subnet.Mask).String())
+	if err != nil {
+		return err
+	}
+	err = subnet.Options.configWrite(out, root, "\t")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "}\n")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (subnets Subnets) ConfigWrite(out io.Writer, root Root) error {
+	var keys []string
+	for k := range subnets {
+		keys = append(keys, k)
+	}
+	sort.StringSlice(keys).Sort()
+
+	for _, k := range keys {
+		subnet := subnets[k]
+		err := subnet.ConfigWrite(out, root)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 const (
 	BYTEARRAY = ValueType(1)
 )
 
 type ValueType int
+
+func (vt ValueType) ConfigString() string {
+	switch vt {
+	case BYTEARRAY:
+		return "array of integer 8"
+	}
+	panic("This shouldn't happened")
+	return ""
+}
+
 type UserDefinedOptionField struct {
 	Code      int
 	ValueType ValueType
@@ -54,10 +184,45 @@ type UserDefinedOptionField struct {
 
 type UserDefinedOptionFields map[string]*UserDefinedOptionField
 
+func (fields UserDefinedOptionFields) ConfigWrite(out io.Writer) (err error) {
+	var keys []string
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.StringSlice(keys).Sort()
+
+	for _, k := range keys {
+		field := fields[k]
+		_, err = fmt.Fprintf(out, "option %v code %v = %v;\n", k, field.Code, field.ValueType.ConfigString())
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
 type Root struct {
 	UserDefinedOptionFields UserDefinedOptionFields
 	Options                 Options
 	Subnets                 Subnets
+}
+
+func (root Root) ConfigWrite(out io.Writer) (err error) {
+	err = root.UserDefinedOptionFields.ConfigWrite(out)
+	if err != nil {
+		return err
+	}
+	err = root.Options.ConfigWrite(out, root)
+	if err != nil {
+		return err
+	}
+	err = root.Subnets.ConfigWrite(out, root)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type Config struct {
@@ -263,4 +428,8 @@ func (cfg *Config) LoadFrom(path string) error {
 	}
 
 	return nil
+}
+
+func (cfg Config) ConfigWrite(out io.Writer) error {
+	return cfg.Root.ConfigWrite(out)
 }

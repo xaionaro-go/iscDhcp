@@ -112,5 +112,45 @@ result:
     }
   }
 }
+
+--- Regenerating the configuration:
+
+option ms-classless-static-routes code 249 = array of integer 8;
+option rfc3442-classless-static-routes code 121 = array of integer 8;
+default-lease-time 600;
+max-lease-time 7200;
+authoritative;
+domain-name example.org;
+domain-name-servers ns1.example.org, ns2.example.org;
+
+subnet 10.254.239.32 netmask 255.255.255.224 {
+	range 10.254.239.40 10.254.239.60;
+	option routers rtr-239-32-1.example.org;
+	option broadcast-address 10.254.239.31;
+}
+
+subnet 10.5.5.0 netmask 255.255.255.224 {
+	default-lease-time 600;
+	max-lease-time 7200;
+	domain-name internal.example.org;
+	domain-name-servers ns1.internal.example.org;
+	range 10.5.5.26 10.5.5.30;
+	option routers 10.5.5.1;
+	option broadcast-address 10.5.5.31;
+}
+
+subnet 10.55.0.0 netmask 255.255.255.0 {
+	domain-name campus.someuniver.edu;
+	domain-name-servers 10.55.0.31;
+	range 10.55.0.230 10.55.0.239;
+	option routers 10.55.0.8;
+	option broadcast-address 10.55.0.255;
+	next-server 10.55.0.12;
+	filename "pxelinux.0";
+	option root-path "/srv/share/nfs/public";
+	option interface-mtu 1300;
+	option rfc3442-classless-static-routes 24, 192, 168, 100, 10, 55, 0, 11;
+	option ms-classless-static-routes 24, 192, 168, 100, 10, 55, 0, 11;
+}
 ```
 
