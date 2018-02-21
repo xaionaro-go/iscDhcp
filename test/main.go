@@ -12,7 +12,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	
+
 	jsonEncoder := json.NewEncoder(os.Stderr)
 	jsonEncoder.SetIndent("", "  ")
 	jsonEncoder.Encode(cfg)

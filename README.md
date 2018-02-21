@@ -28,35 +28,32 @@ func main() {
 result:
 
 {
+  "UserDefinedOptionFields": {
+    "ms-classless-static-routes": {
+      "Code": 249,
+      "ValueType": 1
+    },
+    "rfc3442-classless-static-routes": {
+      "Code": 121,
+      "ValueType": 1
+    }
+  },
   "Options": {
     "DefaultLeaseTime": 600,
     "MaxLeaseTime": 7200,
     "Authoritative": true,
-    "LogFacility": "",
     "DomainNameServers": [
       "ns1.example.org",
       "ns2.example.org"
     ],
     "DomainName": "example.org",
-    "Range": {
-      "Start": "",
-      "End": ""
-    },
-    "Routers": null,
-    "BroadcastAddress": "",
-    "Other": null
+    "Range": {}
   },
   "Subnets": {
     "10.254.239.32": {
       "Network": "10.254.239.32",
       "Mask": "AAAAAAAAAAAAAP//////4A==",
       "Options": {
-        "DefaultLeaseTime": 0,
-        "MaxLeaseTime": 0,
-        "Authoritative": false,
-        "LogFacility": "",
-        "DomainNameServers": null,
-        "DomainName": "",
         "Range": {
           "Start": "10.254.239.40",
           "End": "10.254.239.60"
@@ -64,8 +61,7 @@ result:
         "Routers": [
           "rtr-239-32-1.example.org"
         ],
-        "BroadcastAddress": "10.254.239.31",
-        "Other": null
+        "BroadcastAddress": "10.254.239.31"
       }
     },
     "10.5.5.0": {
@@ -74,8 +70,6 @@ result:
       "Options": {
         "DefaultLeaseTime": 600,
         "MaxLeaseTime": 7200,
-        "Authoritative": false,
-        "LogFacility": "",
         "DomainNameServers": [
           "ns1.internal.example.org"
         ],
@@ -87,8 +81,33 @@ result:
         "Routers": [
           "10.5.5.1"
         ],
-        "BroadcastAddress": "10.5.5.31",
-        "Other": null
+        "BroadcastAddress": "10.5.5.31"
+      }
+    },
+    "10.55.0.0": {
+      "Network": "10.55.0.0",
+      "Mask": "AAAAAAAAAAAAAP//////AA==",
+      "Options": {
+        "DomainNameServers": [
+          "10.55.0.31"
+        ],
+        "DomainName": "campus.someuniver.edu",
+        "Range": {
+          "Start": "10.55.0.230",
+          "End": "10.55.0.239"
+        },
+        "Routers": [
+          "10.55.0.8"
+        ],
+        "BroadcastAddress": "10.55.0.255",
+        "Filename": "pxelinux.0",
+        "NextServer": "10.55.0.12",
+        "RootPath": "/srv/share/nfs/public",
+        "MTU": 1300,
+        "Custom": {
+          "121": "GMCoZAoyAAs=",
+          "249": "GMCoZAoyAAs="
+        }
       }
     }
   }

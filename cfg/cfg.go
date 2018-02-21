@@ -8,24 +8,31 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Range struct {
-	Start net.IP
-	End   net.IP
+	Start net.IP `json:",omitempty"`
+	End   net.IP `json:",omitempty"`
 }
 
+type CustomOptions map[int][]byte
+
 type Options struct {
-	DefaultLeaseTime  int
-	MaxLeaseTime      int
-	Authoritative     bool
-	LogFacility       string
-	DomainNameServers []string
-	DomainName        string
-	Range             Range
-	Routers           []string
-	BroadcastAddress  string
-	Other             map[int][]byte
+	DefaultLeaseTime  int           `json:",omitempty"`
+	MaxLeaseTime      int           `json:",omitempty"`
+	Authoritative     bool          `json:",omitempty"`
+	LogFacility       string        `json:",omitempty"`
+	DomainNameServers []string      `json:",omitempty"`
+	DomainName        string        `json:",omitempty"`
+	Range             Range         `json:",omitempty"`
+	Routers           []string      `json:",omitempty"`
+	BroadcastAddress  string        `json:",omitempty"`
+	Filename          string        `json:",omitempty"`
+	NextServer        string        `json:",omitempty"`
+	RootPath          string        `json:",omitempty"`
+	MTU               int           `json:",omitempty"`
+	Custom            CustomOptions `json:",omitempty"`
 }
 
 type Subnet struct {
@@ -35,9 +42,22 @@ type Subnet struct {
 }
 type Subnets map[string]Subnet
 
+const (
+	BYTEARRAY = ValueType(1)
+)
+
+type ValueType int
+type UserDefinedOptionField struct {
+	Code      int
+	ValueType ValueType
+}
+
+type UserDefinedOptionFields map[string]*UserDefinedOptionField
+
 type Root struct {
-	Options Options
-	Subnets Subnets
+	UserDefinedOptionFields UserDefinedOptionFields
+	Options                 Options
+	Subnets                 Subnets
 }
 
 type Config struct {
@@ -54,7 +74,7 @@ func NewConfig() *Config {
 	}
 }
 
-func (subnet *Subnet) parse(netStr string, cfgRaw *isccfg.Config) (err error) {
+func (subnet *Subnet) parse(root *Root, netStr string, cfgRaw *isccfg.Config) (err error) {
 	var maskStr string
 	cfgRaw, _ = cfgRaw.Unwrap()
 	cfgRaw, maskStr = cfgRaw.Unwrap()
@@ -63,7 +83,7 @@ func (subnet *Subnet) parse(netStr string, cfgRaw *isccfg.Config) (err error) {
 	subnet.Mask = net.IPMask(net.ParseIP(maskStr))
 
 	for k, v := range *cfgRaw {
-		err = subnet.Options.parse(k, v)
+		err = subnet.Options.parse(root, k, v)
 		if err != nil {
 			return
 		}
@@ -71,7 +91,41 @@ func (subnet *Subnet) parse(netStr string, cfgRaw *isccfg.Config) (err error) {
 
 	return nil
 }
-func (options *Options) parse(k string, value isccfg.Value) (err error) {
+func (root *Root) addUserDefinedOptionField(k string, c *isccfg.Config) (err error) {
+	words := c.Unroll()
+	name := k
+	if len(words) < 3 {
+		return fmt.Errorf(`too short: %v`, words)
+	}
+	if words[1] != "=" {
+		return fmt.Errorf(`"=" is expected, got: %v`, words[1])
+	}
+	code, err := strconv.Atoi(words[0])
+	if err != nil {
+		return err
+	}
+
+	var valueType ValueType
+	valueTypeStr := strings.Join(words[2:], " ")
+	switch valueTypeStr {
+	case "array of integer 8":
+		valueType = BYTEARRAY
+	default:
+		return fmt.Errorf(`this case is not implemented, yet: %v`, valueTypeStr)
+	}
+
+	field := UserDefinedOptionField{
+		Code:      code,
+		ValueType: valueType,
+	}
+
+	//fmt.Println("field", name, field)
+	root.UserDefinedOptionFields[name] = &field
+
+	return nil
+}
+
+func (options *Options) parse(root *Root, k string, value isccfg.Value) (err error) {
 	cfgRaw, _ := value.(*isccfg.Config)
 	if k == "_value" {
 		k = value.([]string)[0]
@@ -88,6 +142,10 @@ func (options *Options) parse(k string, value isccfg.Value) (err error) {
 		options.LogFacility = cfgRaw.Values()[0]
 	case "ddns-update-style":
 		// TODO: implement this
+	case "filename":
+		options.Filename = cfgRaw.Values()[0]
+	case "next-server":
+		options.NextServer = cfgRaw.Values()[0]
 
 	case "range":
 		var startStr, endStr string
@@ -111,8 +169,43 @@ func (options *Options) parse(k string, value isccfg.Value) (err error) {
 				options.BroadcastAddress = c.Values()[0]
 			case "routers":
 				options.Routers = c.Values()
+			case "root-path":
+				options.RootPath = c.Values()[0]
+			case "interface-mtu":
+				options.MTU, err = strconv.Atoi(c.Values()[0])
+			case "static-routes":
+
 			default:
-				fmt.Fprintf(os.Stderr, "Not recognized option: %v\n", k)
+				field := root.UserDefinedOptionFields[k]
+				if field == nil {
+					c, codeWord := c.Unwrap()
+					if codeWord != "code" {
+						fmt.Fprintf(os.Stderr, "Not recognized option: %v\n", k)
+						break
+					}
+					err := root.addUserDefinedOptionField(k, c)
+					if err != nil {
+						return err
+					}
+					break
+				}
+
+				switch field.ValueType {
+				case BYTEARRAY:
+					var result []byte
+					bytesStr := c.Values()
+					for _, str := range bytesStr {
+						oneByte, err := strconv.Atoi(str)
+						if err != nil {
+							return err
+						}
+						result = append(result, byte(oneByte))
+					}
+					options.Custom[field.Code] = result
+				default:
+					panic("This shouldn't happened")
+				}
+
 			}
 		}
 	default:
@@ -136,24 +229,36 @@ func (cfg *Config) LoadFrom(path string) error {
 	}
 
 	cfg.Root = Root{
-		Subnets: Subnets{},
+		Subnets:                 Subnets{},
+		UserDefinedOptionFields: UserDefinedOptionFields{},
+		Options: Options{
+			Custom: CustomOptions{},
+		},
 	}
 	for k, v := range cfgRaw {
-		switch k {
-		case "subnet":
-			for net, netDetails := range *(v.(*isccfg.Config)) {
-				newSubnet := Subnet{}
-				err := newSubnet.parse(net, netDetails.(*isccfg.Config))
-				if err != nil {
-					return err
-				}
-				cfg.Root.Subnets[net] = newSubnet
+		if k == "subnet" {
+			continue
+		}
+		err := cfg.Root.Options.parse(&cfg.Root, k, v)
+		if err != nil {
+			return err
+		}
+	}
+	for k, v := range cfgRaw {
+		if k != "subnet" {
+			continue
+		}
+		for net, netDetails := range *(v.(*isccfg.Config)) {
+			newSubnet := Subnet{
+				Options: Options{
+					Custom: CustomOptions{},
+				},
 			}
-		default:
-			err := cfg.Root.Options.parse(k, v)
+			err := newSubnet.parse(&cfg.Root, net, netDetails.(*isccfg.Config))
 			if err != nil {
 				return err
 			}
+			cfg.Root.Subnets[net] = newSubnet
 		}
 	}
 
