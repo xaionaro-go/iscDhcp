@@ -54,10 +54,10 @@ func (options Options) configWrite(out io.Writer, root Root, indent string) (err
 		fmt.Fprintf(out, "%vlog-facility %v;\n", indent, options.LogFacility)
 	}
 	if options.DomainName != "" {
-		fmt.Fprintf(out, "%vdomain-name %v;\n", indent, options.DomainName)
+		fmt.Fprintf(out, "%voption domain-name %v;\n", indent, options.DomainName)
 	}
 	if len(options.DomainNameServers) > 0 {
-		fmt.Fprintf(out, "%vdomain-name-servers %v;\n", indent, strings.Join(options.DomainNameServers, ", "))
+		fmt.Fprintf(out, "%voption domain-name-servers %v;\n", indent, strings.Join(options.DomainNameServers, ", "))
 	}
 	if options.Range.Start != nil {
 		fmt.Fprintf(out, "%vrange %v %v;\n", indent, options.Range.Start, options.Range.End)

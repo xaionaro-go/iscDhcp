@@ -2,7 +2,7 @@
 
 This package controls the process (starts, stops) and the configuration file of `isc-dhcp-server`.
 
-You can use [github.com/xaionaro-go/iscDhcp/cfg](https://github.com/xaionaro-go/iscDhcp/tree/master/cfg) as just a config parser.
+You can use [github.com/xaionaro-go/iscDhcp/cfg](https://github.com/xaionaro-go/iscDhcp/tree/master/cfg) as just a config parser/generator.
 
 ```
 package main
