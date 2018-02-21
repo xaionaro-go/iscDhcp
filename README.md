@@ -4,6 +4,8 @@ This package controls the process (starts, stops) and the configuration file of 
 
 You can use [github.com/xaionaro-go/iscDhcp/cfg](https://github.com/xaionaro-go/iscDhcp/tree/master/cfg) as just a config parser/generator.
 
+UPD: Seems the parser/generator is useless, because there's another (better) project: [github.com/sayotte/iscdhcp](https://github.com/sayotte/iscdhcp)
+
 ```
 package main
 
