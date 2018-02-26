@@ -1,8 +1,8 @@
 package iscDhcp
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/mitchellh/go-ps"
@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	ErrCannotRun = errors.New("cannot run")
+	ErrCannotRun      = errors.New("cannot run")
 	ErrAlreadyRunning = errors.New("dhcpd is already started")
 )
 
@@ -97,4 +97,3 @@ func (dhcp DHCP) StopProcess() error {
 func (dhcp DHCP) Stop() error {
 	return dhcp.StopProcess()
 }
-

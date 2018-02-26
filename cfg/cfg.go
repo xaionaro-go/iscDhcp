@@ -19,6 +19,8 @@ type Range struct {
 }
 
 type CustomOptions map[int][]byte
+type NS net.NS
+type NSs []NS
 
 type Options struct {
 	DefaultLeaseTime  int           `json:",omitempty"`
@@ -26,7 +28,7 @@ type Options struct {
 	Authoritative     bool          `json:",omitempty"`
 	LogFacility       string        `json:",omitempty"`
 	DomainName        string        `json:",omitempty"`
-	DomainNameServers []string      `json:",omitempty"`
+	DomainNameServers NSs           `json:",omitempty"`
 	Range             Range         `json:",omitempty"`
 	Routers           []string      `json:",omitempty"`
 	BroadcastAddress  string        `json:",omitempty"`
@@ -35,6 +37,33 @@ type Options struct {
 	RootPath          string        `json:",omitempty"`
 	MTU               int           `json:",omitempty"`
 	Custom            CustomOptions `json:",omitempty"`
+}
+
+
+func (nss NSs) ToIPs() (result []net.IP) {
+	for _, ns := range nss {
+		result = append(result, net.ParseIP(ns.Host))
+	}
+	return
+}
+func (nss NSs) ToStrings() (result []string) {
+	for _, ns := range nss {
+		result = append(result, ns.Host)
+	}
+	return
+}
+func (nss NSs) ToNetNSs() (result []net.NS) {
+	for _, ns := range nss {
+		result = append(result, net.NS(ns))
+	}
+	return
+}
+func (nss *NSs) Set(newNssRaw []string) {
+	*nss = NSs{}
+	for _, newNsRaw := range newNssRaw {
+		*nss = append(*nss, NS{Host: newNsRaw})
+	}
+	return
 }
 
 func (options Options) configWrite(out io.Writer, root Root, indent string) (err error) {
@@ -57,7 +86,7 @@ func (options Options) configWrite(out io.Writer, root Root, indent string) (err
 		fmt.Fprintf(out, "%voption domain-name \"%v\";\n", indent, options.DomainName)
 	}
 	if len(options.DomainNameServers) > 0 {
-		fmt.Fprintf(out, "%voption domain-name-servers %v;\n", indent, strings.Join(options.DomainNameServers, ", "))
+		fmt.Fprintf(out, "%voption domain-name-servers %v;\n", indent, strings.Join(options.DomainNameServers.ToStrings(), ", "))
 	}
 	if options.Range.Start != nil {
 		fmt.Fprintf(out, "%vrange %v %v;\n", indent, options.Range.Start, options.Range.End)
@@ -122,14 +151,13 @@ func (options Options) ConfigWrite(out io.Writer, root Root) error {
 }
 
 type Subnet struct {
-	Network net.IP
-	Mask    net.IPMask
+	Network net.IPNet
 	Options Options
 }
 type Subnets map[string]Subnet
 
 func (subnet Subnet) ConfigWrite(out io.Writer, root Root) (err error) {
-	_, err = fmt.Fprintf(out, "\nsubnet %v netmask %v {\n", subnet.Network, net.IP(subnet.Mask).String())
+	_, err = fmt.Fprintf(out, "\nsubnet %v netmask %v {\n", subnet.Network.IP, net.IP(subnet.Network.Mask).String())
 	if err != nil {
 		return err
 	}
@@ -159,6 +187,23 @@ func (subnets Subnets) ConfigWrite(out io.Writer, root Root) error {
 		}
 	}
 
+	return nil
+}
+
+type ToSubnetI interface {
+	ToSubnet() Subnet
+}
+
+func (subnet Subnet) ToSubnet() Subnet {
+	return subnet
+}
+
+func (subnets Subnets) ISet(subnetI ToSubnetI) error {
+	subnet := subnetI.ToSubnet()
+	if subnet.Network.IP.String() == (net.IP{}).String() {
+		panic("subnet.Network.IP is empty")
+	}
+	subnets[subnet.Network.IP.String()] = subnet
 	return nil
 }
 
@@ -208,6 +253,24 @@ type Root struct {
 	Subnets                 Subnets
 }
 
+func NewRoot() *Root {
+	return &Root{
+		Subnets:                 Subnets{},
+		UserDefinedOptionFields: UserDefinedOptionFields{},
+		Options: Options{
+			Custom: CustomOptions{},
+		},
+	}
+}
+
+func NewSubnet() *Subnet {
+	return &Subnet {
+		Options: Options{
+			Custom: CustomOptions{},
+		},
+	}
+}
+
 func (root Root) ConfigWrite(out io.Writer) (err error) {
 	err = root.UserDefinedOptionFields.ConfigWrite(out)
 	if err != nil {
@@ -232,9 +295,7 @@ type Config struct {
 
 func NewConfig() *Config {
 	return &Config{
-		Root: Root{
-			Subnets: Subnets{},
-		},
+		Root: *NewRoot(),
 		lexer: isccfg.NewLexer(),
 	}
 }
@@ -244,8 +305,8 @@ func (subnet *Subnet) parse(root *Root, netStr string, cfgRaw *isccfg.Config) (e
 	cfgRaw, _ = cfgRaw.Unwrap()
 	cfgRaw, maskStr = cfgRaw.Unwrap()
 
-	subnet.Network = net.ParseIP(netStr)
-	subnet.Mask = net.IPMask(net.ParseIP(maskStr))
+	subnet.Network.IP   = net.ParseIP(netStr)
+	subnet.Network.Mask = net.IPMask(net.ParseIP(maskStr))
 
 	for k, v := range *cfgRaw {
 		err = subnet.Options.parse(root, k, v)
@@ -329,7 +390,7 @@ func (options *Options) parse(root *Root, k string, value isccfg.Value) (err err
 			case "domain-name":
 				options.DomainName = c.Values()[0]
 			case "domain-name-servers":
-				options.DomainNameServers = c.Values()
+				options.DomainNameServers.Set(c.Values())
 			case "broadcast-address":
 				options.BroadcastAddress = c.Values()[0]
 			case "routers":
@@ -404,13 +465,7 @@ func (cfg *Config) LoadFrom(path string) error {
 		return err
 	}
 
-	cfg.Root = Root{
-		Subnets:                 Subnets{},
-		UserDefinedOptionFields: UserDefinedOptionFields{},
-		Options: Options{
-			Custom: CustomOptions{},
-		},
-	}
+	cfg.Root = *NewRoot()
 	for k, v := range cfgRaw {
 		if k == "subnet" {
 			continue
@@ -425,11 +480,7 @@ func (cfg *Config) LoadFrom(path string) error {
 			continue
 		}
 		for net, netDetails := range *(v.(*isccfg.Config)) {
-			newSubnet := Subnet{
-				Options: Options{
-					Custom: CustomOptions{},
-				},
-			}
+			newSubnet := *NewSubnet()
 			err := newSubnet.parse(&cfg.Root, net, netDetails.(*isccfg.Config))
 			if err != nil {
 				return err
