@@ -92,8 +92,16 @@ func (dhcp DHCP) Start() (err error) {
 }
 func (dhcp DHCP) StopProcess() error {
 	process := dhcp.findProcess()
+	if process == nil {
+		return nil
+	}
 	return process.Kill()
 }
 func (dhcp DHCP) Stop() error {
 	return dhcp.StopProcess()
 }
+func (dhcp DHCP) Restart() error {
+	dhcp.Stop()
+	return dhcp.Start()
+}
+
