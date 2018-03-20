@@ -6,8 +6,10 @@ import (
 	"github.com/timtadh/lexmachine"
 	"github.com/xaionaro-go/isccfg"
 	"io"
+	"log"
 	"net"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +41,7 @@ type Options struct {
 	Custom            CustomOptions `json:",omitempty"`
 }
 
+var IsAsciiString = regexp.MustCompile(`^[a-zA-Z0-9,\.?=\-_\\/<>;':"{}\[\]~!@#$%^&*()+*]+$`).MatchString
 
 func (nss NSs) ToIPs() (result []net.IP) {
 	for _, ns := range nss {
@@ -126,6 +129,27 @@ func (options Options) configWrite(out io.Writer, root Root, indent string) (err
 	}
 
 	for _, k := range keys {
+		if customOptionNameMap[k] == "" {
+			customOptionNameMap[k] = fmt.Sprintf("option%v", k)
+		}
+		if customOptionValueTypeMap[k] == 0 {
+			if IsAsciiString(string(options.Custom[k])) {
+				customOptionValueTypeMap[k] = ASCIISTRING
+			} else {
+				customOptionValueTypeMap[k] = BYTEARRAY
+			}
+
+			if indent != "" {
+				panic("This case is not implemented, yet")
+			}
+			err := UserDefinedOptionFields{customOptionNameMap[k]: &UserDefinedOptionField{Code: k, ValueType: customOptionValueTypeMap[k]}}.ConfigWrite(out)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
+	for _, k := range keys {
 		option := options.Custom[k]
 
 		var valueString string
@@ -136,8 +160,10 @@ func (options Options) configWrite(out io.Writer, root Root, indent string) (err
 				result = append(result, strconv.Itoa(int(byteValue)))
 			}
 			valueString = strings.Join(result, ", ")
+		case ASCIISTRING:
+			valueString = `"`+string(option)+`"`
 		default:
-			panic("This shouldn't happened")
+			panic(fmt.Errorf("This shouldn't happened: %v: %v: %v, %v: %v", k, customOptionValueTypeMap[k], customOptionValueTypeMap, root.UserDefinedOptionFields, string(option)))
 		}
 
 		fmt.Fprintf(out, "%voption %v %v;\n", indent, customOptionNameMap[k], valueString)
@@ -208,7 +234,9 @@ func (subnets Subnets) ISet(subnetI ToSubnetI) error {
 }
 
 const (
+	UNKNOWN = ValueType(0)
 	BYTEARRAY = ValueType(1)
+	ASCIISTRING = ValueType(2)
 )
 
 type ValueType int
@@ -217,6 +245,8 @@ func (vt ValueType) ConfigString() string {
 	switch vt {
 	case BYTEARRAY:
 		return "array of integer 8"
+	case ASCIISTRING:
+		return "text"
 	}
 	panic("This shouldn't happened")
 	return ""
@@ -228,6 +258,10 @@ type UserDefinedOptionField struct {
 }
 
 type UserDefinedOptionFields map[string]*UserDefinedOptionField
+
+func (fields *UserDefinedOptionFields) Set(keyName string, codeId int, valueType interface{ToValueType() ValueType}) {
+	(*fields)[keyName] = &UserDefinedOptionField{codeId, valueType.ToValueType()}
+}
 
 func (fields UserDefinedOptionFields) ConfigWrite(out io.Writer) (err error) {
 	var keys []string
@@ -336,8 +370,10 @@ func (root *Root) addUserDefinedOptionField(k string, c *isccfg.Config) (err err
 	switch valueTypeStr {
 	case "array of integer 8":
 		valueType = BYTEARRAY
+	case "text":
+		valueType = ASCIISTRING
 	default:
-		return fmt.Errorf(`this case is not implemented, yet: %v`, valueTypeStr)
+		panic(fmt.Errorf(`this case is not implemented, yet: %v`, valueTypeStr))
 	}
 
 	field := UserDefinedOptionField{
@@ -385,7 +421,10 @@ func (options *Options) parse(root *Root, k string, value isccfg.Value) (err err
 
 	case "option":
 		for k, v := range *cfgRaw {
-			c := v.(*isccfg.Config)
+			c, ok := v.(*isccfg.Config)
+			if !ok {
+				panic(fmt.Errorf("\"v\" (%T) is not *isccfg.Config; k == %v", v, k))
+			}
 			switch k {
 			case "domain-name":
 				options.DomainName = c.Values()[0]
@@ -413,13 +452,13 @@ func (options *Options) parse(root *Root, k string, value isccfg.Value) (err err
 					if err != nil {
 						return err
 					}
-					break
+					field = root.UserDefinedOptionFields[k]
 				}
 
+				bytesStr := c.Values()
 				switch field.ValueType {
 				case BYTEARRAY:
 					var result []byte
-					bytesStr := c.Values()
 					for _, str := range bytesStr {
 						oneByte, err := strconv.Atoi(str)
 						if err != nil {
@@ -428,6 +467,8 @@ func (options *Options) parse(root *Root, k string, value isccfg.Value) (err err
 						result = append(result, byte(oneByte))
 					}
 					options.Custom[field.Code] = result
+				case ASCIISTRING:
+					options.Custom[field.Code] = []byte(strings.Join(bytesStr, ", "))
 				default:
 					panic("This shouldn't happened")
 				}
@@ -448,7 +489,14 @@ func (cfg Config) ConfigWriteTo(path string) error {
 	}
 
 	cfgWriter := bufio.NewWriter(file)
-	defer cfgWriter.Flush()
+
+	defer func() {
+		cfgWriter.Write([]byte("\n"))
+		cfgWriter.Flush()
+		file.Close()
+	}()
+
+	cfgWriter.Write([]byte("# auto-generated config\n\n"))
 	return cfg.ConfigWrite(cfgWriter)
 }
 
@@ -495,3 +543,7 @@ func (cfg *Config) LoadFrom(path string) error {
 func (cfg Config) ConfigWrite(out io.Writer) error {
 	return cfg.Root.ConfigWrite(out)
 }
+
+var (
+	logger = log.New(os.Stderr, "DHCP/cfg", 0)
+)

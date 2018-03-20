@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/mitchellh/go-ps"
 	"github.com/xaionaro-go/iscDhcp/cfg"
+	"time"
 	"os"
 	"os/exec"
 )
@@ -23,6 +24,7 @@ const (
 var (
 	ErrCannotRun      = errors.New("cannot run")
 	ErrAlreadyRunning = errors.New("dhcpd is already started")
+	ErrCannotStop     = errors.New("cannot stop dhcpd")
 )
 
 type Status int
@@ -68,6 +70,11 @@ func (dhcp DHCP) StartProcess() (err error) {
 	/*if dhcp.Status() != STOPPED {
 		return ErrAlreadyRunning
 	}*/
+	process := dhcp.findProcess()
+	if process != nil {
+		return ErrAlreadyRunning
+	}
+	os.Remove("/var/run/dhcpd.pid")
 	cmd := exec.Command("service", "isc-dhcp-server", "start") // Works only with Debian/Ubuntu
 	var outputBuf bytes.Buffer
 	outputBufWriter := bufio.NewWriter(&outputBuf)
@@ -91,11 +98,27 @@ func (dhcp DHCP) Start() (err error) {
 	return dhcp.StartProcess()
 }
 func (dhcp DHCP) StopProcess() error {
+	cmd := exec.Command("service", "isc-dhcp-server", "stop") // Works only with Debian/Ubuntu
+	cmd.Run()
 	process := dhcp.findProcess()
 	if process == nil {
 		return nil
 	}
-	return process.Kill()
+	defer func(){
+		os.Remove("/var/run/dhcpd.pid")
+	}()
+	process.Kill()
+
+	i := 0
+	for dhcp.findProcess() != nil {	// 10 seconds timeout
+		if (i > 100) {
+			return ErrCannotStop
+		}
+		time.Sleep(time.Millisecond * 100)
+		i++
+	}
+
+	return nil
 }
 func (dhcp DHCP) Stop() error {
 	return dhcp.StopProcess()
