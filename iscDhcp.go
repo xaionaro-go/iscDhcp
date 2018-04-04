@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/mitchellh/go-ps"
 	"github.com/xaionaro-go/iscDhcp/cfg"
+	"sync"
 	"time"
 	"os"
 	"os/exec"
@@ -31,16 +32,27 @@ type Status int
 
 type DHCP struct {
 	Config *cfg.Config
+	mutex  *sync.Mutex
 }
 
 func NewDHCP() *DHCP {
-	return &DHCP{Config: cfg.NewConfig()}
+	return &DHCP{Config: cfg.NewConfig(), mutex: &sync.Mutex{}}
 }
 
 func (dhcp *DHCP) ReloadConfig() error {
+	dhcp.lock()
+	defer dhcp.unlock()
+	return dhcp.reloadConfig()
+}
+func (dhcp *DHCP) reloadConfig() error {
 	return dhcp.Config.LoadFrom(CFG_PATH)
 }
 func (dhcp DHCP) SaveConfig() error {
+	dhcp.lock()
+	defer dhcp.unlock()
+	return dhcp.saveConfig()
+}
+func (dhcp DHCP) saveConfig() error {
 	return dhcp.Config.ConfigWriteTo(CFG_PATH)
 }
 func (dhcp DHCP) findProcess() *os.Process {
@@ -60,13 +72,15 @@ func (dhcp DHCP) findProcess() *os.Process {
 	return nil
 }
 func (dhcp DHCP) Status() Status {
+	dhcp.lock()
+	defer dhcp.unlock()
 	process := dhcp.findProcess()
 	if process != nil {
 		return RUNNING
 	}
 	return STOPPED
 }
-func (dhcp DHCP) StartProcess() (err error) {
+func (dhcp DHCP) startProcess() (err error) {
 	/*if dhcp.Status() != STOPPED {
 		return ErrAlreadyRunning
 	}*/
@@ -91,13 +105,18 @@ func (dhcp DHCP) StartProcess() (err error) {
 	return nil
 }
 func (dhcp DHCP) Start() (err error) {
-	err = dhcp.SaveConfig()
+	dhcp.lock()
+	defer dhcp.unlock()
+	return dhcp.start()
+}
+func (dhcp DHCP) start() (err error) {
+	err = dhcp.saveConfig()
 	if err != nil {
 		return err
 	}
-	return dhcp.StartProcess()
+	return dhcp.startProcess()
 }
-func (dhcp DHCP) StopProcess() error {
+func (dhcp DHCP) stopProcess() error {
 	cmd := exec.Command("service", "isc-dhcp-server", "stop") // Works only with Debian/Ubuntu
 	cmd.Run()
 	process := dhcp.findProcess()
@@ -121,10 +140,32 @@ func (dhcp DHCP) StopProcess() error {
 	return nil
 }
 func (dhcp DHCP) Stop() error {
-	return dhcp.StopProcess()
+	dhcp.lock()
+	defer dhcp.unlock()
+	return dhcp.stop()
+}
+func (dhcp DHCP) stop() error {
+	return dhcp.stopProcess()
 }
 func (dhcp DHCP) Restart() error {
-	dhcp.Stop()
-	return dhcp.Start()
+	dhcp.lock()
+	defer dhcp.unlock()
+	dhcp.stop()
+	return dhcp.start()
 }
 
+func (dhcp DHCP) lock() {
+	//fmt.Println("dhcp.lock()")
+	dhcp.mutex.Lock()
+}
+
+func (dhcp DHCP) unlock() {
+	//fmt.Println("dhcp.unlock()")
+	dhcp.mutex.Unlock()
+}
+
+func (dhcp DHCP) SetConfig(cfg cfg.Root) {
+	dhcp.lock()
+	defer dhcp.unlock()
+	dhcp.Config.Root = cfg
+}
