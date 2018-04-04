@@ -31,25 +31,28 @@ var (
 type Status int
 
 type DHCP struct {
-	Config *cfg.Config
-	mutex  *sync.Mutex
+	Config   *cfg.Config
+	runMutex *sync.Mutex
+	cfgMutex *sync.Mutex
 }
 
 func NewDHCP() *DHCP {
-	return &DHCP{Config: cfg.NewConfig(), mutex: &sync.Mutex{}}
+	return &DHCP{Config: cfg.NewConfig(), runMutex: &sync.Mutex{}, cfgMutex: &sync.Mutex{}}
 }
 
 func (dhcp *DHCP) ReloadConfig() error {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.cfgLock()
+	defer dhcp.cfgUnlock()
 	return dhcp.reloadConfig()
 }
 func (dhcp *DHCP) reloadConfig() error {
 	return dhcp.Config.LoadFrom(CFG_PATH)
 }
 func (dhcp DHCP) SaveConfig() error {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.runLock()
+	defer dhcp.runUnlock()
+	dhcp.cfgLock()
+	defer dhcp.cfgUnlock()
 	return dhcp.saveConfig()
 }
 func (dhcp DHCP) saveConfig() error {
@@ -72,8 +75,8 @@ func (dhcp DHCP) findProcess() *os.Process {
 	return nil
 }
 func (dhcp DHCP) Status() Status {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.runLock()
+	defer dhcp.runUnlock()
 	return dhcp.status()
 }
 func (dhcp DHCP) status() Status {
@@ -108,8 +111,8 @@ func (dhcp DHCP) startProcess() (err error) {
 	return nil
 }
 func (dhcp DHCP) Start() (err error) {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.runLock()
+	defer dhcp.runUnlock()
 	return dhcp.start()
 }
 func (dhcp DHCP) start() (err error) {
@@ -143,32 +146,39 @@ func (dhcp DHCP) stopProcess() error {
 	return nil
 }
 func (dhcp DHCP) Stop() error {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.runLock()
+	defer dhcp.runUnlock()
 	return dhcp.stop()
 }
 func (dhcp DHCP) stop() error {
 	return dhcp.stopProcess()
 }
 func (dhcp DHCP) Restart() error {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.runLock()
+	defer dhcp.runUnlock()
 	dhcp.stop()
 	return dhcp.start()
 }
 
-func (dhcp DHCP) lock() {
-	//fmt.Println("dhcp.lock()")
-	dhcp.mutex.Lock()
+func (dhcp DHCP) runLock() {
+	//fmt.Println("dhcp.runLock()")
+	dhcp.runMutex.Lock()
 }
-
-func (dhcp DHCP) unlock() {
-	//fmt.Println("dhcp.unlock()")
-	dhcp.mutex.Unlock()
+func (dhcp DHCP) runUnlock() {
+	//fmt.Println("dhcp.runUnlock()")
+	dhcp.runMutex.Unlock()
+}
+func (dhcp DHCP) cfgLock() {
+	//fmt.Println("dhcp.cfgLock()")
+	dhcp.cfgMutex.Lock()
+}
+func (dhcp DHCP) cfgUnlock() {
+	//fmt.Println("dhcp.cfgUnlock()")
+	dhcp.cfgMutex.Unlock()
 }
 
 func (dhcp DHCP) SetConfig(cfg cfg.Root) {
-	dhcp.lock()
-	defer dhcp.unlock()
+	dhcp.cfgLock()
+	defer dhcp.cfgUnlock()
 	dhcp.Config.Root = cfg
 }
