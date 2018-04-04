@@ -74,6 +74,9 @@ func (dhcp DHCP) findProcess() *os.Process {
 func (dhcp DHCP) Status() Status {
 	dhcp.lock()
 	defer dhcp.unlock()
+	return dhcp.status()
+}
+func (dhcp DHCP) status() Status {
 	process := dhcp.findProcess()
 	if process != nil {
 		return RUNNING
@@ -81,7 +84,7 @@ func (dhcp DHCP) Status() Status {
 	return STOPPED
 }
 func (dhcp DHCP) startProcess() (err error) {
-	/*if dhcp.Status() != STOPPED {
+	/*if dhcp.status() != STOPPED {
 		return ErrAlreadyRunning
 	}*/
 	process := dhcp.findProcess()
@@ -99,7 +102,7 @@ func (dhcp DHCP) startProcess() (err error) {
 		err = fmt.Errorf("%v\noutput: %v", err.Error(), outputBuf.String())
 		return err
 	}
-	if dhcp.Status() != RUNNING {
+	if dhcp.status() != RUNNING {
 		return ErrCannotRun
 	}
 	return nil
