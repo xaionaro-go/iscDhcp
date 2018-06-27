@@ -187,6 +187,14 @@ func (subnet Subnet) ConfigWrite(out io.Writer, root Root) (err error) {
 	if err != nil {
 		return err
 	}
+
+	// A hacky workaround for a bug of https://github.com/xaionaro-go/fwsmConfig/blob/master/dhcp.go
+	if len(subnet.Options.Routers) == 0 {
+		router := subnet.Network.IP
+		routerWords := strings.Split(router.String(), ".")
+		routerWords[3] = "1"
+		subnet.Options.Routers = append(subnet.Options.Routers, strings.Join(routerWords, "."))
+	}
 	err = subnet.Options.configWrite(out, root, "\t")
 	if err != nil {
 		return err
